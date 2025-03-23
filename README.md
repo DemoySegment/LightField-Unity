@@ -1,6 +1,6 @@
 # LightField-Unity
 
-![image-20250322221216741](E:\Computer Graphics\LightField\Assets\README-images\image-20250322221216741.png)
+![image-20250322221216741](.\Assets\README-images\image-20250322221216741.png)
 
 
 
@@ -43,6 +43,4 @@ The demo is made to work in the editor mode.
 
 ## Samples
 
-![novelView4](E:\Computer Graphics\LightField\Assets\README-images\novelView4.png)
-
-![novelView2](E:\Computer Graphics\LightField\Assets\README-images\novelView2.png)
+<img src=".\Assets\README-images\novelView4.png" alt="novelView4" style="zoom: 25%;" /><img src=".\Assets\README-images\novelView.png" alt="novelView" style="zoom: 25%;" /><img src=".\Assets\README-images\novelView2.png" alt="novelView2" style="zoom:25%;" /><img src=".\Assets\README-images\novelView3.png" alt="novelView3" style="zoom:25%;" />
