@@ -1,0 +1,173 @@
+﻿// Each #kernel tells which function to compile; you can have many kernels
+#pragma kernel CSMain
+
+// Create a RenderTexture with enableRandomWrite flag and set it
+// with cs.SetTexture
+RWTexture2D<float4> Result;
+
+Texture2DArray<float4> cameraViews;
+SamplerState linearClampSampler;
+SamplerState pointClampSampler;
+
+StructuredBuffer<float3> cameraPositions;
+StructuredBuffer<float4x4> cameraViewProjs;
+
+
+uint width, height, cameraCount;
+
+uint cameraViewWidth, cameraViewHeight;
+
+uint sampleMethod;
+
+// for ray
+float3 novelViewPos;
+float3 pixelStepX;
+float3 pixelStepY;
+float3 pixel00;
+
+float4 SampleCamera(uint idx, float3 rayDir, SamplerState spl)
+{
+
+    // ray -> uv in the nearest camera
+    float3 pWorld = cameraPositions[idx] + (rayDir * 1);
+    float4 clipSpace = mul(cameraViewProjs[idx], float4(pWorld, 1.0));
+    float2 camUV = (clipSpace.xy / clipSpace.w) * 0.5 + 0.5; // NDC -> UV
+
+    float4 color = float4(0, 0, 0, 1);
+    // sample the color
+    if (camUV.x < 0.0 || camUV.x > 1.0 || camUV.y < 0.0 || camUV.y > 1.0)
+    {
+            
+    }
+    else
+    {
+        // int2 coord = int2(camUV * float2(cameraViewWidth, cameraViewHeight));
+        // color = cameraViews.Load(int3(coord, nearestIdx));
+        color = cameraViews.SampleLevel(spl, float3(camUV, idx), 0);
+    }
+
+
+    return color;
+}
+
+[numthreads(8,8,1)]
+void CSMain (uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= width || id.y >= height)
+        return;
+
+    float3 worldPos = pixel00 + id.x * pixelStepX + id.y * pixelStepY;
+    
+    // ray direction
+    float3 rayDir = normalize(worldPos - novelViewPos);
+
+    float4 color = float4(0, 0, 0, 1);
+
+    // case: nearest neighbour
+    if (sampleMethod == 0)
+    {
+	    // find nearest camera
+        uint nearestIdx = 1;
+        float minDist = -2;
+
+        for (uint i = 0; i < cameraCount*cameraCount; i++)
+        {
+            float3 camPos = cameraPositions[i];
+
+        // 
+            float3 toCamera = normalize(camPos - novelViewPos);
+            float similarity = dot(toCamera, rayDir);
+
+            if (similarity > minDist)
+            {
+                nearestIdx = i;
+                minDist = similarity;
+            }
+        }
+
+        color = SampleCamera(nearestIdx, rayDir, pointClampSampler);
+        
+    }
+	// case: quadrilinear interpolation
+    else if (sampleMethod == 1)
+    {
+        // camera plane 
+        float3 p0 = cameraPositions[0];
+
+        float3 n = normalize(cross(cameraPositions[1] - cameraPositions[0], cameraPositions[cameraCount] - cameraPositions[0]));
+        float d = -dot(n, p0);
+
+        // ray-cameraPlane intersection
+        float denom = dot(n, rayDir);
+
+        // remove parallel
+        if (abs(denom) < 1e-8)
+        {
+            Result[id.xy] = color;
+            return;
+        }
+        float t = -(dot(n, novelViewPos) + d) / denom;
+
+        // remove backward
+        if (t < 0)
+        {
+            Result[id.xy] = color;
+            return;
+        }
+
+
+        // find 4 cameras that surround the position
+        float3 rayHit = novelViewPos + t * rayDir;
+        float3 deltaX = (cameraPositions[cameraCount - 1] - cameraPositions[0]) / (cameraCount - 1);
+        float3 deltaY = (cameraPositions[cameraCount * cameraCount - cameraCount] - cameraPositions[0]) / (cameraCount - 1);
+
+        float dx2 = dot(deltaX, deltaX); // |deltaX|^2
+        float dy2 = dot(deltaY, deltaY); // |deltaY|^2
+
+        float i = dot((rayHit - cameraPositions[0]), deltaX) / dx2;
+        float j = dot((rayHit - cameraPositions[0]), deltaY) / dy2;
+
+       
+
+        uint cellI = (uint) floor(i);
+        uint cellJ = (uint) floor(j);
+
+        // remove rays not hitting within the array
+        if (cellI >= cameraCount-1 || cellJ >= cameraCount-1)
+        {
+            Result[id.xy] = color;
+            return;
+	        
+        }
+
+        uint cameraIndex00 = cellJ * cameraCount + cellI;
+        float4 c00 = SampleCamera(cameraIndex00, rayDir, linearClampSampler);
+
+        uint cameraIndex01 = cellJ * cameraCount + (cellI + 1);
+        float4 c01 = SampleCamera(cameraIndex01, rayDir, linearClampSampler);
+
+        uint cameraIndex10 = (cellJ + 1) * cameraCount + cellI;
+        float4 c10 = SampleCamera(cameraIndex10, rayDir, linearClampSampler);
+
+        uint cameraIndex11 = (cellJ + 1) * cameraCount + (cellI + 1);
+        float4 c11 = SampleCamera(cameraIndex11, rayDir, linearClampSampler);
+
+        
+        // four color weighted average
+        float u = i - cellI;
+        float v = j - cellJ;
+        float w00 = u * v;
+        float w01 = (1 - u) * (v);
+        float w10 = (u) * (1 - v);
+        float w11 = (1 - u) * (1 - v);
+
+
+        float all_weight = w00 + w01 + w10 + w11;
+
+        color = (w11 * c00 + w10 * c01 + w01 * c10 + w00 * c11) / all_weight;
+
+    }
+
+    Result[id.xy] = color;
+
+}
